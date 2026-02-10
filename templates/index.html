@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Live Sensor Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #f0f2f5; padding: 20px; margin: 0; }
+        h1 { text-align: center; color: #333; margin-bottom: 10px; }
+        
+        /* Control Panel */
+        .controls { 
+            display: flex; 
+            justify-content: center; 
+            gap: 15px; 
+            margin-bottom: 20px; 
+            background: white; 
+            padding: 15px; 
+            border-radius: 12px; 
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+            max-width: 800px;
+            margin-left: auto;
+            margin-right: auto;
+        }
+
+        button { 
+            padding: 12px 24px; 
+            border: none; 
+            cursor: pointer; 
+            border-radius: 6px; 
+            font-size: 1rem; 
+            font-weight: 600;
+            transition: all 0.2s;
+        }
+
+        #recordBtn { background: #2ecc71; color: white; min-width: 150px; }
+        #recordBtn.recording { background: #e74c3c; animation: pulse 2s infinite; }
+        
+        #downloadBtn { background: #3498db; color: white; text-decoration: none; display: inline-block; text-align: center; padding: 12px 24px; border-radius: 6px; }
+        #clearBtn { background: #95a5a6; color: white; }
+
+        @keyframes pulse {
+            0% { box-shadow: 0 0 0 0 rgba(231, 76, 60, 0.7); }
+            70% { box-shadow: 0 0 0 10px rgba(231, 76, 60, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(231, 76, 60, 0); }
+        }
+
+        /* Grid & Charts */
+        .container { 
+            display: grid; 
+            grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); 
+            gap: 20px; 
+            max-width: 1400px; 
+            margin: 0 auto; 
+        }
+        .chart-box { background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        
+        /* Expanded Table */
+        .table-box {
+            grid-column: 1 / -1; 
+            background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            overflow-x: auto;
+        }
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 0.9rem; }
+        th, td { padding: 10px; text-align: left; border-bottom: 1px solid #ddd; }
+        th { background-color: #f8f9fa; color: #555; }
+        tbody tr:first-child { background-color: #e3f2fd; font-weight: bold; }
+
+    </style>
+</head>
+<body>
+
+    <h1>Structural Health Monitoring</h1>
+    
+    <div class="controls">
+        <button id="recordBtn" onclick="toggleRecord()">● Start Recording</button>
+        <a id="downloadBtn" href="/download" target="_blank">⬇ Download CSV</a>
+        <button id="clearBtn" onclick="clearData()">🗑️ Clear History</button>
+    </div>
+
+    <div class="container">
+        <div class="chart-box">
+            <h2>Accelerometer (g)</h2>
+            <canvas id="accelChart"></canvas>
+        </div>
+        <div class="chart-box">
+            <h2>Beam Inclinometer (°)</h2> <canvas id="inclChart"></canvas>
+        </div>
+        <div class="chart-box">
+            <h2>Displacement (mm)</h2>
+            <canvas id="dispChart"></canvas>
+        </div>
+
+        <div class="table-box">
+            <h2>Live Sensor Feed (Latest 10)</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Time</th>
+                        <th>Ax (g)</th>
+                        <th>Ay (g)</th>
+                        <th>Az (g)</th>
+                        <th>Beam (°)</th>
+                        <th>Col (°)</th>
+                        <th>Pot (mm)</th>
+                    </tr>
+                </thead>
+                <tbody id="sensorTableBody"></tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        // --- 1. SETUP CHARTS ---
+        
+        // General Options (Auto-Scale)
+        const commonOptions = {
+            animation: false, responsive: true,
+            elements: { point: { radius: 0 } },
+            scales: { x: { ticks: { maxTicksLimit: 10 } } }
+        };
+
+        // Specific Options for Displacement (Fixed Range -5 to +5)
+        const dispOptions = {
+            animation: false, responsive: true,
+            elements: { point: { radius: 0 } },
+            scales: { 
+                x: { ticks: { maxTicksLimit: 10 } },
+                y: { min: -5, max: 5 }
+            }
+        };
+
+        const accelChart = new Chart(document.getElementById('accelChart'), {
+            type: 'line', options: commonOptions,
+            data: { labels: [], datasets: [
+                { label: 'X', borderColor: '#ff6384', borderWidth: 2, data: [] },
+                { label: 'Y', borderColor: '#36a2eb', borderWidth: 2, data: [] },
+                { label: 'Z', borderColor: '#cc65fe', borderWidth: 2, data: [] }
+            ]}
+        });
+
+        // --- UPDATED: ONLY SHOW BEAM INCLINOMETER ---
+        const inclChart = new Chart(document.getElementById('inclChart'), {
+            type: 'line', options: commonOptions,
+            data: { labels: [], datasets: [
+                { label: 'Beam', borderColor: '#ff9f40', borderWidth: 2, data: [] }
+                // Removed Column Dataset here
+            ]}
+        });
+
+        const dispChart = new Chart(document.getElementById('dispChart'), {
+            type: 'line', options: dispOptions, 
+            data: { labels: [], datasets: [
+                { label: 'Potentiometer', borderColor: '#333', borderWidth: 2, fill: true, backgroundColor: 'rgba(0,0,0,0.05)', data: [] }
+            ]}
+        });
+
+        // --- 2. RECORDING LOGIC ---
+        async function toggleRecord() {
+            const btn = document.getElementById('recordBtn');
+            const res = await fetch('/toggle_record', { method: 'POST' });
+            const data = await res.json();
+            updateRecordButton(data.recording);
+        }
+
+        function updateRecordButton(isRecording) {
+            const btn = document.getElementById('recordBtn');
+            if (isRecording) {
+                btn.textContent = "■ Stop Recording";
+                btn.classList.add("recording");
+            } else {
+                btn.textContent = "● Start Recording";
+                btn.classList.remove("recording");
+            }
+        }
+
+        // Check status on load in case page refreshed
+        fetch('/status').then(r => r.json()).then(d => updateRecordButton(d.recording));
+
+        async function clearData() {
+            if(confirm("Delete all saved CSV data?")) {
+                await fetch('/clear_data', { method: 'POST' });
+            }
+        }
+
+        // --- 3. LIVE UPDATE LOOP ---
+        async function updateDashboard() {
+            try {
+                const response = await fetch('/data');
+                const data = await response.json();
+
+                // Arrays for Chart.js
+                const labels = [];
+                const ax=[], ay=[], az=[], ib=[], disp=[]; 
+                // Note: 'ic' array removed as it's not graphed anymore
+
+                data.forEach((row, index) => {
+                    labels.push(row.timestamp);
+                    ax.push(row.accel_x); ay.push(row.accel_y); az.push(row.accel_z);
+                    disp.push(row.disp);
+
+                    // Unwrapping Logic (Only for Beam now)
+                    let rawBeam = row.incl_beam;
+                    
+                    if (index > 0) {
+                        if (rawBeam - ib[index-1] > 300) rawBeam -= 360;
+                        else if (rawBeam - ib[index-1] < -300) rawBeam += 360;
+                    }
+                    ib.push(rawBeam); 
+                });
+
+                // Update Charts
+                accelChart.data.labels = labels;
+                accelChart.data.datasets[0].data = ax;
+                accelChart.data.datasets[1].data = ay;
+                accelChart.data.datasets[2].data = az;
+                accelChart.update();
+
+                // --- UPDATED: ONLY PUSH TO DATASET[0] ---
+                inclChart.data.labels = labels;
+                inclChart.data.datasets[0].data = ib;
+                inclChart.update();
+
+                dispChart.data.labels = labels;
+                dispChart.data.datasets[0].data = disp;
+                dispChart.update();
+
+                // Update Table (Reverse to show newest first)
+                const tableBody = document.getElementById('sensorTableBody');
+                tableBody.innerHTML = "";
+                data.slice(-10).reverse().forEach(row => {
+                    const tr = document.createElement('tr');
+                    
+                    // Helper to safely format numbers
+                    const fmt = (val) => val != null ? val.toFixed(4) : "0.0000";
+
+                    tr.innerHTML = `
+                        <td>${row.timestamp}</td>
+                        <td>${fmt(row.accel_x)}</td>
+                        <td>${fmt(row.accel_y)}</td>
+                        <td>${fmt(row.accel_z)}</td>
+                        <td>${fmt(row.incl_beam)}</td>
+                        <td>${fmt(row.incl_col)}</td>
+                        <td>${fmt(row.disp)}</td>
+                    `;
+                    tableBody.appendChild(tr);
+                });
+
+            } catch (e) { console.error(e); }
+        }
+
+        setInterval(updateDashboard, 500);
+    </script>
+</body>
+</html>
