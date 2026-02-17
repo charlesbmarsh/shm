@@ -4,7 +4,7 @@ import sqlite3
 import csv
 import io
 from flask import Flask, jsonify, render_template, request, Response
-from datetime import datetime
+from datetime import datetime, timedelta
 
 app = Flask(__name__, template_folder='templates')
 DB_FILE = "sensor_data.db"
@@ -18,11 +18,12 @@ def init_db():
     with sqlite3.connect(DB_FILE) as conn:
         cursor = conn.cursor()
         cursor.execute("PRAGMA journal_mode=WAL;")
+        # FIXED: Removed 'UNIQUE' from sync_id so we don't overwrite data
         cursor.execute(''' 
             CREATE TABLE IF NOT EXISTS sensor_readings (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 timestamp TEXT,
-                sync_id TEXT UNIQUE,
+                sync_id TEXT, 
                 accel_x REAL, accel_y REAL, accel_z REAL,
                 incl_beam REAL, incl_col REAL,
                 disp REAL,
@@ -47,47 +48,65 @@ def update_sensor():
         if not data or not isinstance(data, list):
             return jsonify({"error": "Invalid format"}), 400
         
-        # 1. Parse Data
-        sync_id = data[0].get('sync_id')
+        # We expect a list of 15 objects. 
+        # The last object is "now", the previous is "now - 66ms", etc.
+        base_time = datetime.now()
         
-        # --- TIMESTAMP UPDATE IS HERE ---
-        # Format: YYYY-MM-DD HH:MM:SS.mmm
-        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]
+        # We process the list in reverse order to assign timestamps backwards
+        # But the list comes in [oldest, ..., newest], so we handle accordingly.
+        num_samples = len(data)
+        time_step = 0.066 # 66ms per sample
         
-        mapping = {
-            "accel_x": "accel_x", "accel_y": "accel_y", "accel_z": "accel_z",
-            "incl_beam": "incl_beam", "incl_col": "incl_col",
-            "disp_1": "disp", "strain_1": "strain_1", "strain_2": "strain_2"
-        }
+        new_rows = []
 
-        row_data = {"sync_id": sync_id, "timestamp": timestamp}
-        
-        for key in mapping.values():
-            row_data[key] = None
+        for i, item in enumerate(data):
+            # Calculate timestamp: (Now) - (TimeStep * (Total - i - 1))
+            offset = time_step * (num_samples - 1 - i)
+            row_time = base_time - timedelta(seconds=offset)
+            timestamp_str = row_time.strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]
 
-        for item in data:
-            s_id = item.get('sensor_id')
-            val = item.get('value')
-            if s_id in mapping:
-                row_data[mapping[s_id]] = val
+            row_data = {
+                "sync_id": item.get("sync_id", "0"),
+                "timestamp": timestamp_str,
+                "accel_x": item.get("accel_x"),
+                "accel_y": item.get("accel_y"),
+                "accel_z": item.get("accel_z"),
+                "incl_beam": item.get("incl_beam"),
+                "incl_col": item.get("incl_col"),
+                "disp": item.get("disp"), # Note: ESP32 sends 'disp', DB uses 'disp'
+                "strain_1": item.get("strain_1"),
+                "strain_2": item.get("strain_2")
+            }
+            new_rows.append(row_data)
 
-        # 2. Update Buffer
-        live_buffer.append(row_data)
+        # 2. Update Buffer (Extend with all new rows)
+        live_buffer.extend(new_rows)
+        # Keep buffer manageable (last 50 points)
         if len(live_buffer) > 50:
-            live_buffer.pop(0) 
+            live_buffer = live_buffer[-50:]
 
         # 3. Save to DB
         if recording:
             with sqlite3.connect(DB_FILE) as conn:
                 cursor = conn.cursor()
-                columns = ', '.join(row_data.keys())
-                placeholders = ', '.join(['?'] * len(row_data))
-                values = list(row_data.values())
-                sql = f"INSERT OR REPLACE INTO sensor_readings ({columns}) VALUES ({placeholders})"
-                cursor.execute(sql, values)
+                sql = '''INSERT INTO sensor_readings 
+                         (timestamp, sync_id, accel_x, accel_y, accel_z, incl_beam, incl_col, disp, strain_1, strain_2) 
+                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'''
+                
+                # Prepare batch insert
+                batch_values = []
+                for r in new_rows:
+                    batch_values.append((
+                        r['timestamp'], r['sync_id'], 
+                        r['accel_x'], r['accel_y'], r['accel_z'], 
+                        r['incl_beam'], r['incl_col'], r['disp'], 
+                        r['strain_1'], r['strain_2']
+                    ))
+                
+                cursor.executemany(sql, batch_values)
                 conn.commit()
 
-        return jsonify({"message": "Received"}), 200
+        return jsonify({"message": f"Received {num_samples} samples"}), 200
 
     except Exception as e:
         print(f"Error: {e}")
@@ -113,7 +132,6 @@ def download_data():
         cursor = conn.cursor()
         cursor.execute("SELECT * FROM sensor_readings")
         rows = cursor.fetchall()
-        
         headers = [description[0] for description in cursor.description]
         
         output = io.StringIO()
