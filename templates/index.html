@@ -64,7 +64,6 @@
         th, td { padding: 10px; text-align: left; border-bottom: 1px solid #ddd; }
         th { background-color: #f8f9fa; color: #555; }
         tbody tr:first-child { background-color: #e3f2fd; font-weight: bold; }
-
     </style>
 </head>
 <body>
@@ -102,6 +101,7 @@
                         <th>Beam (°)</th>
                         <th>Col (°)</th>
                         <th>Pot (mm)</th>
+                        <th>Strain</th>
                     </tr>
                 </thead>
                 <tbody id="sensorTableBody"></tbody>
@@ -110,53 +110,14 @@
     </div>
 
     <script>
-        // --- 1. SETUP CHARTS ---
-        
-        // General Options (Auto-Scale)
-        const commonOptions = {
-            animation: false, responsive: true,
-            elements: { point: { radius: 0 } },
-            scales: { x: { ticks: { maxTicksLimit: 10 } } }
-        };
+        const commonOptions = { animation: false, responsive: true, elements: { point: { radius: 0 } }, scales: { x: { ticks: { maxTicksLimit: 10 } } } };
+        const dispOptions = { animation: false, responsive: true, elements: { point: { radius: 0 } }, scales: { x: { ticks: { maxTicksLimit: 10 } }, y: { min: -5, max: 5 } } };
 
-        // Specific Options for Displacement (Fixed Range -5 to +5)
-        const dispOptions = {
-            animation: false, responsive: true,
-            elements: { point: { radius: 0 } },
-            scales: { 
-                x: { ticks: { maxTicksLimit: 10 } },
-                y: { min: -5, max: 5 }
-            }
-        };
+        const accelChart = new Chart(document.getElementById('accelChart'), { type: 'line', options: commonOptions, data: { labels: [], datasets: [ { label: 'X', borderColor: '#ff6384', borderWidth: 2, data: [] }, { label: 'Y', borderColor: '#36a2eb', borderWidth: 2, data: [] }, { label: 'Z', borderColor: '#cc65fe', borderWidth: 2, data: [] } ]} });
+        const inclChart = new Chart(document.getElementById('inclChart'), { type: 'line', options: commonOptions, data: { labels: [], datasets: [ { label: 'Beam', borderColor: '#ff9f40', borderWidth: 2, data: [] } ]} });
+        const dispChart = new Chart(document.getElementById('dispChart'), { type: 'line', options: dispOptions, data: { labels: [], datasets: [ { label: 'Potentiometer', borderColor: '#333', borderWidth: 2, fill: true, backgroundColor: 'rgba(0,0,0,0.05)', data: [] } ]} });
 
-        const accelChart = new Chart(document.getElementById('accelChart'), {
-            type: 'line', options: commonOptions,
-            data: { labels: [], datasets: [
-                { label: 'X', borderColor: '#ff6384', borderWidth: 2, data: [] },
-                { label: 'Y', borderColor: '#36a2eb', borderWidth: 2, data: [] },
-                { label: 'Z', borderColor: '#cc65fe', borderWidth: 2, data: [] }
-            ]}
-        });
-
-        // --- UPDATED: ONLY SHOW BEAM INCLINOMETER ---
-        const inclChart = new Chart(document.getElementById('inclChart'), {
-            type: 'line', options: commonOptions,
-            data: { labels: [], datasets: [
-                { label: 'Beam', borderColor: '#ff9f40', borderWidth: 2, data: [] }
-                // Removed Column Dataset here
-            ]}
-        });
-
-        const dispChart = new Chart(document.getElementById('dispChart'), {
-            type: 'line', options: dispOptions, 
-            data: { labels: [], datasets: [
-                { label: 'Potentiometer', borderColor: '#333', borderWidth: 2, fill: true, backgroundColor: 'rgba(0,0,0,0.05)', data: [] }
-            ]}
-        });
-
-        // --- 2. RECORDING LOGIC ---
         async function toggleRecord() {
-            const btn = document.getElementById('recordBtn');
             const res = await fetch('/toggle_record', { method: 'POST' });
             const data = await res.json();
             updateRecordButton(data.recording);
@@ -164,43 +125,27 @@
 
         function updateRecordButton(isRecording) {
             const btn = document.getElementById('recordBtn');
-            if (isRecording) {
-                btn.textContent = "■ Stop Recording";
-                btn.classList.add("recording");
-            } else {
-                btn.textContent = "● Start Recording";
-                btn.classList.remove("recording");
-            }
+            if (isRecording) { btn.textContent = "■ Stop Recording"; btn.classList.add("recording"); } 
+            else { btn.textContent = "● Start Recording"; btn.classList.remove("recording"); }
         }
 
-        // Check status on load in case page refreshed
         fetch('/status').then(r => r.json()).then(d => updateRecordButton(d.recording));
 
         async function clearData() {
-            if(confirm("Delete all saved CSV data?")) {
-                await fetch('/clear_data', { method: 'POST' });
-            }
+            if(confirm("Delete all saved CSV data?")) { await fetch('/clear_data', { method: 'POST' }); }
         }
 
-        // --- 3. LIVE UPDATE LOOP ---
         async function updateDashboard() {
             try {
                 const response = await fetch('/data');
                 const data = await response.json();
-
-                // Arrays for Chart.js
-                const labels = [];
-                const ax=[], ay=[], az=[], ib=[], disp=[]; 
-                // Note: 'ic' array removed as it's not graphed anymore
+                const labels = [], ax=[], ay=[], az=[], ib=[], disp=[]; 
 
                 data.forEach((row, index) => {
                     labels.push(row.timestamp);
                     ax.push(row.accel_x); ay.push(row.accel_y); az.push(row.accel_z);
                     disp.push(row.disp);
-
-                    // Unwrapping Logic (Only for Beam now)
                     let rawBeam = row.incl_beam;
-                    
                     if (index > 0) {
                         if (rawBeam - ib[index-1] > 300) rawBeam -= 360;
                         else if (rawBeam - ib[index-1] < -300) rawBeam += 360;
@@ -208,31 +153,17 @@
                     ib.push(rawBeam); 
                 });
 
-                // Update Charts
                 accelChart.data.labels = labels;
-                accelChart.data.datasets[0].data = ax;
-                accelChart.data.datasets[1].data = ay;
-                accelChart.data.datasets[2].data = az;
+                accelChart.data.datasets[0].data = ax; accelChart.data.datasets[1].data = ay; accelChart.data.datasets[2].data = az;
                 accelChart.update();
+                inclChart.data.labels = labels; inclChart.data.datasets[0].data = ib; inclChart.update();
+                dispChart.data.labels = labels; dispChart.data.datasets[0].data = disp; dispChart.update();
 
-                // --- UPDATED: ONLY PUSH TO DATASET[0] ---
-                inclChart.data.labels = labels;
-                inclChart.data.datasets[0].data = ib;
-                inclChart.update();
-
-                dispChart.data.labels = labels;
-                dispChart.data.datasets[0].data = disp;
-                dispChart.update();
-
-                // Update Table (Reverse to show newest first)
                 const tableBody = document.getElementById('sensorTableBody');
                 tableBody.innerHTML = "";
                 data.slice(-10).reverse().forEach(row => {
                     const tr = document.createElement('tr');
-                    
-                    // Helper to safely format numbers
                     const fmt = (val) => val != null ? val.toFixed(4) : "0.0000";
-
                     tr.innerHTML = `
                         <td>${row.timestamp}</td>
                         <td>${fmt(row.accel_x)}</td>
@@ -241,10 +172,10 @@
                         <td>${fmt(row.incl_beam)}</td>
                         <td>${fmt(row.incl_col)}</td>
                         <td>${fmt(row.disp)}</td>
+                        <td>${fmt(row.strain)}</td>
                     `;
                     tableBody.appendChild(tr);
                 });
-
             } catch (e) { console.error(e); }
         }
 
