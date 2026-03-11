@@ -3,7 +3,7 @@ import sqlite3
 import csv
 import io
 from flask import Flask, jsonify, render_template, request, Response
-from datetime import datetime
+from datetime import datetime, timedelta
 
 app = Flask(__name__, template_folder='templates')
 DB_FILE = "sensor_data.db"
@@ -60,10 +60,20 @@ def update_sensor():
         if not data or not isinstance(data, list):
             return jsonify({"error": "Invalid format"}), 400
         
-        for item in data:
-            timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]
+        base_time = datetime.now()
+        num_samples = len(data)
+        time_step = 0.066 # 66ms between samples
+        
+        new_rows = []
+
+        for i, item in enumerate(data):
+            # RESTORED FIX: Calculate millisecond offsets for 15Hz batch
+            offset = time_step * (num_samples - 1 - i)
+            row_time = base_time - timedelta(seconds=offset)
+            timestamp_str = row_time.strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]
+
             row = {
-                "timestamp": timestamp,
+                "timestamp": timestamp_str,
                 "sync_id": item.get('sync_id'),
                 "accel_x": item.get('accel_x'),
                 "accel_y": item.get('accel_y'),
@@ -71,17 +81,29 @@ def update_sensor():
                 "incl_beam": item.get('incl_beam'),
                 "incl_col": item.get('incl_col'),
                 "disp": item.get('disp'),
-                "strain": item.get('strain')
+                "strain": item.get('strain') # Matches ESP32 JSON perfectly now
             }
-            live_buffer.append(row)
-            if len(live_buffer) > 50: live_buffer.pop(0) 
-            if recording:
-                with sqlite3.connect(DB_FILE) as conn:
-                    cursor = conn.cursor()
-                    columns = ', '.join(row.keys())
-                    placeholders = ', '.join(['?'] * len(row))
-                    cursor.execute(f"INSERT INTO sensor_readings ({columns}) VALUES ({placeholders})", list(row.values()))
-                    conn.commit()
+            new_rows.append(row)
+            
+        live_buffer.extend(new_rows)
+        if len(live_buffer) > 50: 
+            live_buffer = live_buffer[-50:]
+            
+        if recording:
+            with sqlite3.connect(DB_FILE) as conn:
+                cursor = conn.cursor()
+                sql = '''INSERT INTO sensor_readings 
+                         (timestamp, sync_id, accel_x, accel_y, accel_z, incl_beam, incl_col, disp, strain) 
+                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'''
+                
+                batch_values = [
+                    (r['timestamp'], r['sync_id'], r['accel_x'], r['accel_y'], r['accel_z'], 
+                     r['incl_beam'], r['incl_col'], r['disp'], r['strain']) 
+                    for r in new_rows
+                ]
+                cursor.executemany(sql, batch_values)
+                conn.commit()
+                
         return jsonify({"message": "Received"}), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
