@@ -92,7 +92,7 @@
             // Update button styles
             document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
             btnElement.classList.add('active');
-            // Force an immediate chart update so it feels snappy
+            // Force an immediate chart update
             updateDashboard();
         }
 
@@ -135,23 +135,23 @@
                 
                 // Group data by device
                 const groupedData = {};
-                const labels = [];
                 
                 data.forEach(row => {
                     const id = row.device_id || "Unknown";
                     if (!groupedData[id]) {
-                        groupedData[id] = { ax: [], beam: [], disp: [] };
+                        groupedData[id] = { ax: [], beam: [], disp: [], time: [] };
                     }
                     groupedData[id].ax.push(row.accel_x);
                     groupedData[id].beam.push(row.incl_beam);
                     groupedData[id].disp.push(row.disp);
-                    labels.push(row.timestamp); 
+                    groupedData[id].time.push(row.timestamp); 
                 });
 
                 // Rebuild datasets
                 const accelDatasets = [];
                 const inclDatasets = [];
                 const dispDatasets = [];
+                let chartLabels = []; // Dynamic labels array for fixed X-Axis scaling
 
                 for (const [id, streams] of Object.entries(groupedData)) {
                     // FILTER LOGIC: Only push datasets that match the active tab
@@ -160,14 +160,20 @@
                         accelDatasets.push({ label: id, borderColor: color, borderWidth: 2, data: streams.ax });
                         inclDatasets.push({ label: id, borderColor: color, borderWidth: 2, data: streams.beam });
                         dispDatasets.push({ label: id, borderColor: color, borderWidth: 2, data: streams.disp });
+                        
+                        // Set the chart's X-axis to match the length of the longest active dataset
+                        if (streams.time.length > chartLabels.length) {
+                            chartLabels = streams.time;
+                        }
                     }
                 }
 
-                accelChart.data.labels = labels; accelChart.data.datasets = accelDatasets; accelChart.update();
-                inclChart.data.labels = labels; inclChart.data.datasets = inclDatasets; inclChart.update();
-                dispChart.data.labels = labels; dispChart.data.datasets = dispDatasets; dispChart.update();
+                // Apply the newly sized labels array to the charts
+                accelChart.data.labels = chartLabels; accelChart.data.datasets = accelDatasets; accelChart.update();
+                inclChart.data.labels = chartLabels; inclChart.data.datasets = inclDatasets; inclChart.update();
+                dispChart.data.labels = chartLabels; dispChart.data.datasets = dispDatasets; dispChart.update();
 
-                // Update Table (Also filtered by tab!)
+                // Update Table (Filtered by tab)
                 const tableBody = document.getElementById('sensorTableBody');
                 tableBody.innerHTML = "";
                 
