@@ -11,6 +11,10 @@ DB_FILE = "sensor_data.db"
 recording = False
 live_buffer = [] 
 
+# NEW: Calibration State
+latest_raw_data = {}      # Keeps track of the exact raw numbers coming from the ESP32s
+calibration_offsets = {}  # Holds the "Tare" values
+
 # --- DATABASE SETUP ---
 def init_db():
     with sqlite3.connect(DB_FILE) as conn:
@@ -51,9 +55,18 @@ def toggle_record():
     recording = not recording
     return jsonify({"recording": recording})
 
+# NEW: The Tare Endpoint
+@app.route('/calibrate', methods=['POST'])
+def calibrate_sensors():
+    global calibration_offsets, latest_raw_data
+    # Take a snapshot of the latest raw data and lock it in as the new offset
+    for dev_id, raw_vals in latest_raw_data.items():
+        calibration_offsets[dev_id] = raw_vals.copy()
+    return jsonify({"message": "Sensors Tared Successfully!"})
+
 @app.route('/update', methods=['POST'])
 def update_sensor():
-    global live_buffer, recording
+    global live_buffer, recording, latest_raw_data, calibration_offsets
     try:
         data = request.get_json()
         if not data or not isinstance(data, list):
@@ -61,20 +74,35 @@ def update_sensor():
         
         new_rows = []
         for item in data:
+            dev_id = item.get('device_id', 'Unknown')
+            
+            # 1. Update the background raw tracker
+            latest_raw_data[dev_id] = {
+                'accel_x': item.get('accel_x', 0),
+                'accel_y': item.get('accel_y', 0),
+                'incl_beam': item.get('incl_beam', 0),
+                'incl_col': item.get('incl_col', 0),
+                'disp': item.get('disp', 0),
+                'strain': item.get('strain', 0)
+            }
+            
+            # 2. Get the specific offsets for this node (default to 0 if not tared yet)
+            offsets = calibration_offsets.get(dev_id, {})
+            
+            # 3. Apply the offset math before saving
             row = {
-                "device_id": item.get('device_id', 'Unknown'),
-                "timestamp": item.get('timestamp'),  # Extracted from ESP32 payload
-                "accel_x": item.get('accel_x'),
-                "accel_y": item.get('accel_y'),
-                "incl_beam": item.get('incl_beam'),
-                "incl_col": item.get('incl_col'),
-                "disp": item.get('disp'),
-                "strain": item.get('strain')
+                "device_id": dev_id,
+                "timestamp": item.get('timestamp'),
+                "accel_x": item.get('accel_x', 0) - offsets.get('accel_x', 0),
+                "accel_y": item.get('accel_y', 0) - offsets.get('accel_y', 0),
+                "incl_beam": item.get('incl_beam', 0) - offsets.get('incl_beam', 0),
+                "incl_col": item.get('incl_col', 0) - offsets.get('incl_col', 0),
+                "disp": item.get('disp', 0) - offsets.get('disp', 0),
+                "strain": item.get('strain', 0) - offsets.get('strain', 0)
             }
             new_rows.append(row)
 
         live_buffer.extend(new_rows)
-        # Hold roughly ~4 seconds of data for 4 devices (15Hz * 4 = 60 samples/sec)
         if len(live_buffer) > 250:
             live_buffer = live_buffer[-250:] 
 
