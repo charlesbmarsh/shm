@@ -16,7 +16,7 @@
         #downloadBtn { background: #3498db; color: white; text-decoration: none; display: inline-block; text-align: center; padding: 12px 24px; border-radius: 6px; }
         #clearBtn { background: #95a5a6; color: white; }
         
-        /* NEW: Tare Button Style */
+        /* Tare Button Style */
         #tareBtn { background: #f1c40f; color: #333; }
         #tareBtn:hover { background: #f39c12; color: white;}
 
@@ -28,7 +28,7 @@
         .tab-btn:hover { background: #dee2e6; }
         .tab-btn.active { background: #fff; border: 2px solid #3498db; color: #3498db; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
 
-        /* Grid */
+        /* Grid - Now supporting 4 charts smoothly */
         .container { display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 20px; max-width: 1400px; margin: 0 auto; }
         .chart-box { background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
         .table-box { grid-column: 1 / -1; background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); overflow-x: auto; }
@@ -66,6 +66,10 @@
             <canvas id="inclChart"></canvas>
         </div>
         <div class="chart-box">
+            <h2>Column Inclinometer (°)</h2>
+            <canvas id="colInclChart"></canvas>
+        </div>
+        <div class="chart-box">
             <h2>Displacement (mm)</h2>
             <canvas id="dispChart"></canvas>
         </div>
@@ -100,7 +104,12 @@
             updateDashboard();
         }
 
-        const commonOptions = { animation: false, responsive: true, elements: { point: { radius: 0 } }, scales: { x: { display: false } } };
+        // --- NEW: Static Scale Chart Options ---
+        const baseOptions = { animation: false, responsive: true, elements: { point: { radius: 0 } } };
+        
+        const accelOptions = { ...baseOptions, scales: { x: { display: false }, y: { min: -0.5, max: 0.5 } } };
+        const inclOptions = { ...baseOptions, scales: { x: { display: false }, y: { min: -5, max: 5 } } };
+        const dispOptions = { ...baseOptions, scales: { x: { display: false }, y: { min: -110, max: 110 } } };
         
         const deviceColors = {
             "Node_1": "#ff6384",
@@ -109,9 +118,11 @@
             "Node_4": "#ffce56"
         };
 
-        const accelChart = new Chart(document.getElementById('accelChart'), { type: 'line', options: commonOptions, data: { labels: [], datasets: [] }});
-        const inclChart = new Chart(document.getElementById('inclChart'), { type: 'line', options: commonOptions, data: { labels: [], datasets: [] }});
-        const dispChart = new Chart(document.getElementById('dispChart'), { type: 'line', options: commonOptions, data: { labels: [], datasets: [] }});
+        // Initialize Charts with their specific scale options
+        const accelChart = new Chart(document.getElementById('accelChart'), { type: 'line', options: accelOptions, data: { labels: [], datasets: [] }});
+        const inclChart = new Chart(document.getElementById('inclChart'), { type: 'line', options: inclOptions, data: { labels: [], datasets: [] }});
+        const colInclChart = new Chart(document.getElementById('colInclChart'), { type: 'line', options: inclOptions, data: { labels: [], datasets: [] }});
+        const dispChart = new Chart(document.getElementById('dispChart'), { type: 'line', options: dispOptions, data: { labels: [], datasets: [] }});
 
         async function toggleRecord() {
             const res = await fetch('/toggle_record', { method: 'POST' });
@@ -125,12 +136,11 @@
             else { btn.textContent = "● Start Recording"; btn.classList.remove("recording"); }
         }
 
-        // NEW: Tare Functionality
         async function tareSensors() {
             try {
                 const res = await fetch('/calibrate', { method: 'POST' });
                 const data = await res.json();
-                alert(data.message); // Pops up a tiny alert saying "Sensors Tared Successfully!"
+                alert(data.message); 
             } catch (error) {
                 console.error("Error taring sensors:", error);
                 alert("Failed to tare sensors.");
@@ -153,16 +163,19 @@
                 data.forEach(row => {
                     const id = row.device_id || "Unknown";
                     if (!groupedData[id]) {
-                        groupedData[id] = { ax: [], beam: [], disp: [], time: [] };
+                        // NEW: Added 'col' array to track column inclinometer data
+                        groupedData[id] = { ax: [], beam: [], col: [], disp: [], time: [] };
                     }
                     groupedData[id].ax.push(row.accel_x);
                     groupedData[id].beam.push(row.incl_beam);
+                    groupedData[id].col.push(row.incl_col); 
                     groupedData[id].disp.push(row.disp);
                     groupedData[id].time.push(row.timestamp); 
                 });
 
                 const accelDatasets = [];
                 const inclDatasets = [];
+                const colInclDatasets = [];
                 const dispDatasets = [];
                 let chartLabels = []; 
 
@@ -171,6 +184,7 @@
                         const color = deviceColors[id] || "#333333";
                         accelDatasets.push({ label: id, borderColor: color, borderWidth: 2, data: streams.ax });
                         inclDatasets.push({ label: id, borderColor: color, borderWidth: 2, data: streams.beam });
+                        colInclDatasets.push({ label: id, borderColor: color, borderWidth: 2, data: streams.col }); // Map col data
                         dispDatasets.push({ label: id, borderColor: color, borderWidth: 2, data: streams.disp });
                         
                         if (streams.time.length > chartLabels.length) {
@@ -181,6 +195,7 @@
 
                 accelChart.data.labels = chartLabels; accelChart.data.datasets = accelDatasets; accelChart.update();
                 inclChart.data.labels = chartLabels; inclChart.data.datasets = inclDatasets; inclChart.update();
+                colInclChart.data.labels = chartLabels; colInclChart.data.datasets = colInclDatasets; colInclChart.update();
                 dispChart.data.labels = chartLabels; dispChart.data.datasets = dispDatasets; dispChart.update();
 
                 const tableBody = document.getElementById('sensorTableBody');
