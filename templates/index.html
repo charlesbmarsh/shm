@@ -8,12 +8,18 @@
         h1 { text-align: center; color: #333; margin-bottom: 10px; }
         
         /* Main Controls */
-        .controls { display: flex; justify-content: center; gap: 15px; margin-bottom: 20px; background: white; padding: 15px; border-radius: 12px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); max-width: 800px; margin-left: auto; margin-right: auto; }
+        .controls { display: flex; justify-content: center; gap: 15px; margin-bottom: 20px; background: white; padding: 15px; border-radius: 12px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); max-width: 900px; margin-left: auto; margin-right: auto; }
         button { padding: 12px 24px; border: none; cursor: pointer; border-radius: 6px; font-size: 1rem; font-weight: 600; transition: all 0.2s; }
+        
         #recordBtn { background: #2ecc71; color: white; min-width: 150px; }
         #recordBtn.recording { background: #e74c3c; animation: pulse 2s infinite; }
         #downloadBtn { background: #3498db; color: white; text-decoration: none; display: inline-block; text-align: center; padding: 12px 24px; border-radius: 6px; }
         #clearBtn { background: #95a5a6; color: white; }
+        
+        /* NEW: Tare Button Style */
+        #tareBtn { background: #f1c40f; color: #333; }
+        #tareBtn:hover { background: #f39c12; color: white;}
+
         @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(231, 76, 60, 0.7); } 70% { box-shadow: 0 0 0 10px rgba(231, 76, 60, 0); } 100% { box-shadow: 0 0 0 0 rgba(231, 76, 60, 0); } }
         
         /* Tab Navigation */
@@ -37,6 +43,7 @@
     
     <div class="controls">
         <button id="recordBtn" onclick="toggleRecord()">● Start Recording</button>
+        <button id="tareBtn" onclick="tareSensors()">⏏️ Tare Sensors</button>
         <a id="downloadBtn" href="/download" target="_blank">⬇ Download CSV</a>
         <button id="clearBtn" onclick="clearData()">🗑️ Clear History</button>
     </div>
@@ -84,21 +91,17 @@
     </div>
 
     <script>
-        // Global state for tabs
         let activeTab = 'All';
 
         function switchTab(nodeId, btnElement) {
             activeTab = nodeId;
-            // Update button styles
             document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
             btnElement.classList.add('active');
-            // Force an immediate chart update
             updateDashboard();
         }
 
         const commonOptions = { animation: false, responsive: true, elements: { point: { radius: 0 } }, scales: { x: { display: false } } };
         
-        // Colors for up to 4 devices
         const deviceColors = {
             "Node_1": "#ff6384",
             "Node_2": "#36a2eb",
@@ -122,6 +125,18 @@
             else { btn.textContent = "● Start Recording"; btn.classList.remove("recording"); }
         }
 
+        // NEW: Tare Functionality
+        async function tareSensors() {
+            try {
+                const res = await fetch('/calibrate', { method: 'POST' });
+                const data = await res.json();
+                alert(data.message); // Pops up a tiny alert saying "Sensors Tared Successfully!"
+            } catch (error) {
+                console.error("Error taring sensors:", error);
+                alert("Failed to tare sensors.");
+            }
+        }
+
         fetch('/status').then(r => r.json()).then(d => updateRecordButton(d.recording));
 
         async function clearData() {
@@ -133,7 +148,6 @@
                 const response = await fetch('/data');
                 const data = await response.json();
                 
-                // Group data by device
                 const groupedData = {};
                 
                 data.forEach(row => {
@@ -147,37 +161,31 @@
                     groupedData[id].time.push(row.timestamp); 
                 });
 
-                // Rebuild datasets
                 const accelDatasets = [];
                 const inclDatasets = [];
                 const dispDatasets = [];
-                let chartLabels = []; // Dynamic labels array for fixed X-Axis scaling
+                let chartLabels = []; 
 
                 for (const [id, streams] of Object.entries(groupedData)) {
-                    // FILTER LOGIC: Only push datasets that match the active tab
                     if (activeTab === 'All' || activeTab === id) {
                         const color = deviceColors[id] || "#333333";
                         accelDatasets.push({ label: id, borderColor: color, borderWidth: 2, data: streams.ax });
                         inclDatasets.push({ label: id, borderColor: color, borderWidth: 2, data: streams.beam });
                         dispDatasets.push({ label: id, borderColor: color, borderWidth: 2, data: streams.disp });
                         
-                        // Set the chart's X-axis to match the length of the longest active dataset
                         if (streams.time.length > chartLabels.length) {
                             chartLabels = streams.time;
                         }
                     }
                 }
 
-                // Apply the newly sized labels array to the charts
                 accelChart.data.labels = chartLabels; accelChart.data.datasets = accelDatasets; accelChart.update();
                 inclChart.data.labels = chartLabels; inclChart.data.datasets = inclDatasets; inclChart.update();
                 dispChart.data.labels = chartLabels; dispChart.data.datasets = dispDatasets; dispChart.update();
 
-                // Update Table (Filtered by tab)
                 const tableBody = document.getElementById('sensorTableBody');
                 tableBody.innerHTML = "";
                 
-                // Filter the raw data array before rendering the table
                 let displayData = data;
                 if (activeTab !== 'All') {
                     displayData = data.filter(row => row.device_id === activeTab);
