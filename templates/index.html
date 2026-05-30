@@ -7,7 +7,6 @@
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #f0f2f5; padding: 20px; margin: 0; }
         h1 { text-align: center; color: #333; margin-bottom: 10px; }
         
-        /* Main Controls */
         .controls { display: flex; justify-content: center; gap: 15px; margin-bottom: 20px; background: white; padding: 15px; border-radius: 12px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); max-width: 900px; margin-left: auto; margin-right: auto; }
         button { padding: 12px 24px; border: none; cursor: pointer; border-radius: 6px; font-size: 1rem; font-weight: 600; transition: all 0.2s; }
         
@@ -16,19 +15,16 @@
         #downloadBtn { background: #3498db; color: white; text-decoration: none; display: inline-block; text-align: center; padding: 12px 24px; border-radius: 6px; }
         #clearBtn { background: #95a5a6; color: white; }
         
-        /* Tare Button Style */
         #tareBtn { background: #f1c40f; color: #333; }
         #tareBtn:hover { background: #f39c12; color: white;}
 
         @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(231, 76, 60, 0.7); } 70% { box-shadow: 0 0 0 10px rgba(231, 76, 60, 0); } 100% { box-shadow: 0 0 0 0 rgba(231, 76, 60, 0); } }
         
-        /* Tab Navigation */
         .tab-container { display: flex; justify-content: center; gap: 10px; margin-bottom: 20px; max-width: 1400px; margin-left: auto; margin-right: auto; }
         .tab-btn { background: #e9ecef; color: #495057; border: 2px solid transparent; padding: 10px 20px; font-size: 1rem; font-weight: bold; border-radius: 8px; cursor: pointer; transition: all 0.3s; }
         .tab-btn:hover { background: #dee2e6; }
         .tab-btn.active { background: #fff; border: 2px solid #3498db; color: #3498db; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
 
-        /* Grid - Now supporting 4 charts smoothly */
         .container { display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 20px; max-width: 1400px; margin: 0 auto; }
         .chart-box { background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
         .table-box { grid-column: 1 / -1; background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); overflow-x: auto; }
@@ -62,11 +58,11 @@
             <canvas id="accelChart"></canvas>
         </div>
         <div class="chart-box">
-            <h2>Beam Inclinometer (°)</h2>
+            <h2>Beam Inclinometer (V)</h2>
             <canvas id="inclChart"></canvas>
         </div>
         <div class="chart-box">
-            <h2>Column Inclinometer (°)</h2>
+            <h2>Column Inclinometer (V)</h2>
             <canvas id="colInclChart"></canvas>
         </div>
         <div class="chart-box">
@@ -83,8 +79,8 @@
                         <th>Device ID</th>
                         <th>Ax (g)</th>
                         <th>Ay (g)</th>
-                        <th>Beam (°)</th>
-                        <th>Col (°)</th>
+                        <th>Beam (V)</th>
+                        <th>Col (V)</th>
                         <th>Pot (mm)</th>
                         <th>Strain (V)</th>
                     </tr>
@@ -104,11 +100,13 @@
             updateDashboard();
         }
 
-        // --- NEW: Static Scale Chart Options ---
         const baseOptions = { animation: false, responsive: true, elements: { point: { radius: 0 } } };
         
-        const accelOptions = { ...baseOptions, scales: { x: { display: false }, y: { min: -0.5, max: 0.5 } } };
-        const inclOptions = { ...baseOptions, scales: { x: { display: false }, y: { min: -5, max: 5 } } };
+        const accelOptions = { ...baseOptions, scales: { x: { display: false }, y: { min: -0.1, max: 0.1 } } };
+        
+        // Changed static scale for Inclinometers from +/-5 to +/-0.1 Volts
+        const inclOptions = { ...baseOptions, scales: { x: { display: false }, y: { min: -0.1, max: 0.1 } } };
+        
         const dispOptions = { ...baseOptions, scales: { x: { display: false }, y: { min: -110, max: 110 } } };
         
         const deviceColors = {
@@ -118,7 +116,6 @@
             "Node_4": "#ffce56"
         };
 
-        // Initialize Charts with their specific scale options
         const accelChart = new Chart(document.getElementById('accelChart'), { type: 'line', options: accelOptions, data: { labels: [], datasets: [] }});
         const inclChart = new Chart(document.getElementById('inclChart'), { type: 'line', options: inclOptions, data: { labels: [], datasets: [] }});
         const colInclChart = new Chart(document.getElementById('colInclChart'), { type: 'line', options: inclOptions, data: { labels: [], datasets: [] }});
@@ -163,7 +160,6 @@
                 data.forEach(row => {
                     const id = row.device_id || "Unknown";
                     if (!groupedData[id]) {
-                        // NEW: Added 'col' array to track column inclinometer data
                         groupedData[id] = { ax: [], beam: [], col: [], disp: [], time: [] };
                     }
                     groupedData[id].ax.push(row.accel_x);
@@ -184,7 +180,7 @@
                         const color = deviceColors[id] || "#333333";
                         accelDatasets.push({ label: id, borderColor: color, borderWidth: 2, data: streams.ax });
                         inclDatasets.push({ label: id, borderColor: color, borderWidth: 2, data: streams.beam });
-                        colInclDatasets.push({ label: id, borderColor: color, borderWidth: 2, data: streams.col }); // Map col data
+                        colInclDatasets.push({ label: id, borderColor: color, borderWidth: 2, data: streams.col }); 
                         dispDatasets.push({ label: id, borderColor: color, borderWidth: 2, data: streams.disp });
                         
                         if (streams.time.length > chartLabels.length) {
