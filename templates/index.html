@@ -103,10 +103,9 @@
         const baseOptions = { animation: false, responsive: true, elements: { point: { radius: 0 } } };
         
         const accelOptions = { ...baseOptions, scales: { x: { display: false }, y: { min: -0.1, max: 0.1 } } };
-        
-        // Changed static scale for Inclinometers back to +/- 5 degrees
         const inclOptions = { ...baseOptions, scales: { x: { display: false }, y: { min: -5, max: 5 } } };
         
+        // CHANGED: Displacement range narrowed to +/- 15mm
         const dispOptions = { ...baseOptions, scales: { x: { display: false }, y: { min: -15, max: 15 } } };
         
         const deviceColors = {
@@ -175,16 +174,23 @@
                 const dispDatasets = [];
                 let chartLabels = []; 
 
-                for (const [id, streams] of Object.entries(groupedData)) {
-                    if (activeTab === 'All' || activeTab === id) {
-                        const color = deviceColors[id] || "#333333";
-                        accelDatasets.push({ label: id, borderColor: color, borderWidth: 2, data: streams.ax });
-                        inclDatasets.push({ label: id, borderColor: color, borderWidth: 2, data: streams.beam });
-                        colInclDatasets.push({ label: id, borderColor: color, borderWidth: 2, data: streams.col }); 
-                        dispDatasets.push({ label: id, borderColor: color, borderWidth: 2, data: streams.disp });
+                // CHANGED: Force a strict ordering for the dataset assembly
+                const orderedNodes = ["Node_1", "Node_2", "Node_3", "Node_4"];
+
+                for (const id of orderedNodes) {
+                    if (groupedData[id]) { // Only process if the node has actually reported data
+                        const streams = groupedData[id];
                         
-                        if (streams.time.length > chartLabels.length) {
-                            chartLabels = streams.time;
+                        if (activeTab === 'All' || activeTab === id) {
+                            const color = deviceColors[id] || "#333333";
+                            accelDatasets.push({ label: id, borderColor: color, borderWidth: 2, data: streams.ax });
+                            inclDatasets.push({ label: id, borderColor: color, borderWidth: 2, data: streams.beam });
+                            colInclDatasets.push({ label: id, borderColor: color, borderWidth: 2, data: streams.col }); 
+                            dispDatasets.push({ label: id, borderColor: color, borderWidth: 2, data: streams.disp });
+                            
+                            if (streams.time.length > chartLabels.length) {
+                                chartLabels = streams.time;
+                            }
                         }
                     }
                 }
