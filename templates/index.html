@@ -58,11 +58,11 @@
             <canvas id="accelChart"></canvas>
         </div>
         <div class="chart-box">
-            <h2>Beam Inclinometer (V)</h2>
+            <h2>Beam Inclinometer (°)</h2>
             <canvas id="inclChart"></canvas>
         </div>
         <div class="chart-box">
-            <h2>Column Inclinometer (V)</h2>
+            <h2>Column Inclinometer (°)</h2>
             <canvas id="colInclChart"></canvas>
         </div>
         <div class="chart-box">
@@ -79,8 +79,8 @@
                         <th>Device ID</th>
                         <th>Ax (g)</th>
                         <th>Ay (g)</th>
-                        <th>Beam (V)</th>
-                        <th>Col (V)</th>
+                        <th>Beam (°)</th>
+                        <th>Col (°)</th>
                         <th>Pot (mm)</th>
                         <th>Strain (V)</th>
                     </tr>
@@ -104,8 +104,8 @@
         
         const accelOptions = { ...baseOptions, scales: { x: { display: false }, y: { min: -0.1, max: 0.1 } } };
         
-        // Changed static scale for Inclinometers from +/-5 to +/-0.1 Volts
-        const inclOptions = { ...baseOptions, scales: { x: { display: false }, y: { min: -0.1, max: 0.1 } } };
+        // Changed static scale for Inclinometers back to +/- 5 degrees
+        const inclOptions = { ...baseOptions, scales: { x: { display: false }, y: { min: -5, max: 5 } } };
         
         const dispOptions = { ...baseOptions, scales: { x: { display: false }, y: { min: -110, max: 110 } } };
         
